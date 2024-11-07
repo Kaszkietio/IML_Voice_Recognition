@@ -3,7 +3,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.lib.stride_tricks as stride_tricks
 import librosa
-import time
 import multiprocessing as mp
 
 
@@ -31,32 +30,56 @@ def overlapping_frames(x: np.ndarray, frame_size: int, overlap_factor: float) ->
 
 
 
-def process_file(filename: str, input_path: str, output_path: str, augmentations: dict[str], **kwargs):
+def overlapping_frames2D(X: np.ndarray, frame_size: int, overlap_factor: float) -> np.ndarray:
+    assert len(X.shape) == 2, "X is not a 2D matrix."
+    height, width = X.shape
+    assert width >= frame_size, f"Frame size ({frame_size}) exceeds length of x ({width})."
+
+    assert overlap_factor >= 0.0 and overlap_factor < 1.0,\
+        f"Overlap factor ({overlap_factor}) has to be from range [0.0, 1.0)."
+
+    stride_size = int(frame_size - np.floor(frame_size * overlap_factor))
+    # Remove offset from the beginning of the data, its just background noise
+    offset = (width - frame_size) % stride_size
+    X = X[:, offset:]
+    height, width = X.shape
+    window_count = (width - frame_size) // stride_size + 1
+
+    stride_height, stride_width = X.strides
+    frames = stride_tricks.as_strided(X, shape=(window_count, height, frame_size),
+                                      strides=(stride_width*stride_size, stride_height, stride_width))
+
+    return frames
+
+
+
+def process_file(filename: str, input_path: str, output_path: str, augmentations: dict[str]):
     sr = None
-    if "sr" in kwargs:
-        sr = float(kwargs["sr"])
+    if "sr" in augmentations:
+        sr = float(augmentations["sr"])
 
     offset = 0.0
-    if "offset" in kwargs:
-        offset = float(kwargs["offset"])
+    if "offset" in augmentations:
+        offset = float(augmentations["offset"])
 
     n_mels = 256
-    if "n_mels" in kwargs:
-        n_mels = int(kwargs["n_mels"])
+    if "target_height" in augmentations:
+        n_mels = int(augmentations["target_height"])
 
     filepath = os.path.join(input_path, filename)+".wav"
     print(f"[LOG] \tOpening file: {filepath}")
 
     y, sr = librosa.load(filepath, sr=sr, offset=offset)
 
-    # if "mute_sections" in augmentations and augmentations["mute_sections"]:
-    #     intervals = librosa.effects.split(y=y,)
-
     # Split y into frames (default size is len(y), producing 1 frame), which share some amount of
     # data equal to OVERLAP_FACTOR. One image of width duration*sample_rate would be too big for
     # training CNN, also model which requires ~3min sample to classify a person is not useful.
-    if "frame_size" in augmentations:
-        frame_size = int(augmentations["frame_size"] * sr)
+    if "target_width" in augmentations:
+        target_width = augmentations["target_width"]
+        if type(target_width) is int:
+            frame_size = target_width
+        else:
+            frame_size = int(target_width * sr)
     else:
         frame_size = len(y)
 
@@ -66,25 +89,23 @@ def process_file(filename: str, input_path: str, output_path: str, augmentations
         overlap_factor = 0.0
 
 
-    frames = overlapping_frames(y, frame_size, overlap_factor)
-
-    S = [librosa.feature.melspectrogram(y=frame, sr=sr, n_mels=n_mels) for frame in frames]
-    logS = [librosa.power_to_db(s) for s in S]
-
+    S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=n_mels)
+    logS = librosa.power_to_db(S)
+    frames = overlapping_frames2D(logS, frame_size, overlap_factor)
 
     # Standardize colormap
     vmin = np.min(logS)
     vmax = np.max(logS)
 
     base_output_path = os.path.join(output_path, filename)
-    for i, logs in enumerate(logS):
+
+    for i, frame in enumerate(frames):
         output_file_path = base_output_path+f"_{i}.png"
-        plt.imsave(output_file_path, logs, cmap="bwr", vmin=vmin, vmax=vmax)
-        print(f"[LOG] \tSaved file: {output_file_path}")
+        plt.imsave(output_file_path, frame, cmap="bwr", vmin=vmin, vmax=vmax)
 
 
 
-def preprocess_dir(data_path: str, output_path: str, dir: str, augmentations: dict[str], **kwargs):
+def preprocess_dir(data_path: str, output_path: str, dir: str, augmentations: dict[str]):
     if not os.path.exists(output_path):
         os.mkdir(output_path)
 
@@ -107,23 +128,28 @@ def preprocess_dir(data_path: str, output_path: str, dir: str, augmentations: di
         file_no_ext = entry.name.removesuffix(".wav")
         actor, *_ = file_no_ext.split("_")
         class_path = class_paths["1" if actor in POSITIVE_CLASS else "0"]
-        process_file(file_no_ext, full_dir_path, class_path, augmentations, **kwargs)
-
+        process_file(file_no_ext, full_dir_path, class_path, augmentations)
         print("[LOG] \tEntry processed")
 
 
 
 def main():
-    data_path = os.path.join(os.getcwd(), "..", "data")
+    import argparse
+    import time
+    import json
+
+    # TODO: Create some usage
+    parser = argparse.ArgumentParser()
+    parser.add_argument("config")
+    args = parser.parse_args()
+    with open(args.config) as f:
+        config = json.load(f)
+
+    data_path = config["data_path"]
     daps_path = os.path.join(data_path, "daps")
-    output_path = os.path.join(data_path, "daps_img")
-    dirs = ["iphone_bedroom1", "ipad_confroom2", "ipadflat_office1", "ipadflat_confroom1",
-            "ipad_balcony1", "clean", "produced", "cleanraw", "ipad_bedroom1", "ipad_livingroom1",
-            "ipad_confroom1", "ipad_office1", "ipad_office2", "iphone_balcony1",
-            "iphone_livingroom1"]
-    augmentations = {"mute_sections": False,
-                     "overlap_factor": 0.33,
-                     "frame_size": 3.0}
+    output_path = os.path.join(data_path, config["output_dir"])
+    dirs = config["dirs"]
+    augmentations = config["augmentations"]
 
     pool = mp.Pool(4)
     print("START PROCESSING")

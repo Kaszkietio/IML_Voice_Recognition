@@ -1,0 +1,3 @@
+- Split images from 'daps_img_overlap_0' into 256x259 images in dataprocessing phase.
+- Create 'daps_img_overlap_0' with smaller resolution - around 128x128.
+- Ask about out-of-core learning

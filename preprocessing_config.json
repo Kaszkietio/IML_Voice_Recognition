@@ -1,0 +1,15 @@
+{
+    "data_path": "data",
+    "output_dir": "overlap_000_res_256x256_2d",
+    "dirs": ["iphone_bedroom1", "ipad_confroom2", "ipadflat_office1", "ipadflat_confroom1",
+             "ipad_balcony1", "clean", "produced", "cleanraw", "ipad_bedroom1", "ipad_livingroom1",
+             "ipad_confroom1", "ipad_office1", "ipad_office2", "iphone_balcony1",
+             "iphone_livingroom1"],
+
+    "augmentations": {
+        "overlap_factor": 0.0,
+        "target_height": 256,
+        "target_width": 256,
+        "mute_sections": false
+    }
+}
