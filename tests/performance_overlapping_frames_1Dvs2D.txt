@@ -1,0 +1,32 @@
+Input: "sample" directory
+Settings:
+    1 Process
+    Overlap factor: 0.33
+    Target_height: 256
+    Target_width: 256
+    Logging: off
+
+Whole time:
+overlapping_frames:     36.30 s
+overlapping_frames2D:   24.22 s
+
+Time of processing one file (average):
+overlapping_frames:     2.42 s
+overlapping_frames2D:   1.61 s
+
+On average ~50% faster with 2D implementation.
+
+-------------------------------------------------------------------------------------------------
+
+Input: daps dataset
+Settings:
+    4 Process
+    Overlap factor: 0.0
+    Target_height: 256
+    Target_width: 256
+
+Whole time:
+overlapping_frames:     ~40 min
+overlapping_frames2D:    9.19 min
+
+Goddamn
