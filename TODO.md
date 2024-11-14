@@ -1,4 +1,15 @@
+# TODOs
+
+#### 13.11
+- Experiment with SGD
+    - Learning Rate: np.logscale(-3, 0)
+- Imbalanced classes
+
+
+![SGD may not work with class balancing](class_weights_sgd_adam.png)
+
 #### 10.11
+- Train/test split included in preprocessing stage
 - Experiment with different Neural Networks
 - compare best NN to simple Convolutional Neural Network
 

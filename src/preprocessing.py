@@ -53,7 +53,12 @@ def overlapping_frames2D(X: np.ndarray, frame_size: int, overlap_factor: float) 
 
 
 
-def process_file(filename: str, input_path: str, output_path: str, augmentations: dict[str]):
+def process_file(
+        filename: str,
+        input_path: str,
+        output_path: dict[str, str],
+        augmentations: dict[str]
+):
     sr = None
     if "sr" in augmentations:
         sr = float(augmentations["sr"])
@@ -97,38 +102,60 @@ def process_file(filename: str, input_path: str, output_path: str, augmentations
     vmin = np.min(logS)
     vmax = np.max(logS)
 
-    base_output_path = os.path.join(output_path, filename)
+    if "test_split" in augmentations:
+        test_split = float(augmentations["test_split"])
+    else:
+        test_split = 0.0
 
-    for i, frame in enumerate(frames):
-        output_file_path = base_output_path+f"_{i}.png"
-        plt.imsave(output_file_path, frame, cmap="bwr", vmin=vmin, vmax=vmax)
+    idx = np.arange(len(frames))
+    if "shuffle" in augmentations:
+        shuffle = bool(augmentations["shuffle"])
+        if shuffle:
+            np.random.shuffle(idx)
+            frames = frames[idx]
+
+    train_frames_count = int((1.0 - test_split) * len(frames))
+    splited_idx = np.split(idx, [train_frames_count], axis=0)
+    splited_frames = np.split(frames, [train_frames_count], axis=0)
+    splited_base_output_paths = [os.path.join(output_path["train"], filename),
+                                 os.path.join(output_path["test"], filename)]
+
+    for idx, frames, base_output_path in zip(splited_idx, splited_frames, splited_base_output_paths):
+        for i, frame in zip(idx, frames):
+            output_file_path = base_output_path+f"_{i}.png"
+            plt.imsave(output_file_path, frame, cmap="bwr", vmin=vmin, vmax=vmax)
 
 
 
-def preprocess_dir(data_path: str, output_path: str, dir: str, augmentations: dict[str]):
+def preprocess_dir(input_path: str, output_path: str, dir: str, augmentations: dict[str]):
     if not os.path.exists(output_path):
-        os.mkdir(output_path)
+        os.makedirs(output_path, exist_ok=True)
 
-    class_paths = { "0": os.path.join(output_path, "0"),
-                    "1": os.path.join(output_path, "1")}
-
-    for class_path in class_paths.values():
-        if not os.path.exists(class_path):
-            os.mkdir(class_path)
-
+    class_paths = { "0": {"train": os.path.join(output_path, "train", "0"),
+                          "test": os.path.join(output_path, "test", "0")},
+                    "1": {"train": os.path.join(output_path, "train", "1"),
+                          "test": os.path.join(output_path, "test", "1")}}
 
     print(f"[LOG] Processing directory '{dir}'")
-    full_dir_path = os.path.join(data_path, dir)
-    for entry in os.scandir(full_dir_path):
+    full_input_path = os.path.join(input_path, dir)
+    for entry in os.scandir(full_input_path):
         print(f"[LOG] \tProcessing entry '{entry.path}'")
         if entry.is_dir():
             print("[LOG] \tEntry is a directory, skipping")
             continue
 
         file_no_ext = entry.name.removesuffix(".wav")
-        actor, *_ = file_no_ext.split("_")
+        actor, script, *env = file_no_ext.split("_")
+        env = "_".join(env)
         class_path = class_paths["1" if actor in POSITIVE_CLASS else "0"]
-        process_file(file_no_ext, full_dir_path, class_path, augmentations)
+
+        cur_path = {}
+        cur_path["train"] = os.path.join(class_path["train"], env, actor)
+        os.makedirs(cur_path["train"], exist_ok=True)
+        cur_path["test"] = os.path.join(class_path["test"], env, actor)
+        os.makedirs(cur_path["test"], exist_ok=True)
+
+        process_file(file_no_ext, full_input_path, cur_path, augmentations)
         print("[LOG] \tEntry processed")
 
 
@@ -157,8 +184,10 @@ def main():
     results = [pool.apply_async(preprocess_dir,
                                 [daps_path, output_path, dir, augmentations])
                for dir in dirs]
+
     for r in results:
-        r.wait()
+        r.get()
+
     end = time.time()
     print("END PROCESSING")
     print(f"Elapsed time: {end - start} s")
