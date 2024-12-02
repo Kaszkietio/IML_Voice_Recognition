@@ -79,15 +79,6 @@ def process_file(
     # Split y into frames (default size is len(y), producing 1 frame), which share some amount of
     # data equal to OVERLAP_FACTOR. One image of width duration*sample_rate would be too big for
     # training CNN, also model which requires ~3min sample to classify a person is not useful.
-    if "target_width" in augmentations:
-        target_width = augmentations["target_width"]
-        if type(target_width) is int:
-            frame_size = target_width
-        else:
-            frame_size = int(target_width * sr)
-    else:
-        frame_size = len(y)
-
     if "overlap_factor" in augmentations:
         overlap_factor = float(augmentations["overlap_factor"])
     else:
@@ -96,6 +87,18 @@ def process_file(
 
     S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=n_mels)
     logS = librosa.power_to_db(S)
+
+    height, width = logS.shape
+
+    if "target_width" in augmentations:
+        target_width = augmentations["target_width"]
+        if type(target_width) is int:
+            frame_size = target_width
+        else:
+            frame_size = int(width * (float(target_width) * sr / len(y)))
+    else:
+        frame_size = width
+
     frames = overlapping_frames2D(logS, frame_size, overlap_factor)
 
     # Standardize colormap
@@ -114,7 +117,7 @@ def process_file(
             np.random.shuffle(idx)
             frames = frames[idx]
 
-    train_frames_count = int((1.0 - test_split) * len(frames))
+    train_frames_count = int(np.ceil((1.0 - test_split) * len(frames)))
     splited_idx = np.split(idx, [train_frames_count], axis=0)
     splited_frames = np.split(frames, [train_frames_count], axis=0)
     splited_base_output_paths = [os.path.join(output_path["train"], filename),
